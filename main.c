@@ -218,7 +218,7 @@ void find_closest_words(const char *input_word, char **dictionary_words, int dic
         closest[i].distance = SIZE_MAX;
     }
 
-    // Calculate Levenshtein distances and update the closest words list
+    // Calculate Levenshtein distances and update the closest words list.
     for (int i = 0; i < dictionary_size; i++) {
         size_t distance = levenshtein(input_word, dictionary_words[i]);
 
