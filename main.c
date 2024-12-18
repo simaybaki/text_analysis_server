@@ -205,25 +205,60 @@ char **process_input(int *word_count) {
     return words;
 }
 
+// Function to find the top LEVENSHTEIN_LIST_LIMIT closest words and their distances
+void find_closest_words(const char *input_word, char **dictionary_words, int dictionary_size) {
+    typedef struct {
+        char *word;
+        size_t distance;
+    } WordDistance;
 
+    WordDistance closest[LEVENSHTEIN_LIST_LIMIT];
+    for (int i = 0; i < LEVENSHTEIN_LIST_LIMIT; i++) {
+        closest[i].word = NULL;
+        closest[i].distance = SIZE_MAX;
+    }
+
+    // Calculate Levenshtein distances and update the closest words list
+    for (int i = 0; i < dictionary_size; i++) {
+        size_t distance = levenshtein(input_word, dictionary_words[i]);
+
+        // Check if this word is closer than the farthest word in the list
+        for (int j = 0; j < LEVENSHTEIN_LIST_LIMIT; j++) {
+            if (distance < closest[j].distance) {
+                // Shift remaining entries to make room for the new word
+                for (int k = LEVENSHTEIN_LIST_LIMIT - 1; k > j; k--) {
+                    closest[k] = closest[k - 1];
+                }
+                closest[j].word = dictionary_words[i];
+                closest[j].distance = distance;
+                break;
+            }
+        }
+    }
+
+    // Print the closest matches
+    printf("MATCHES: ");
+    for (int i = 0; i < LEVENSHTEIN_LIST_LIMIT && closest[i].word != NULL; i++) {
+        printf("%s (%zu) ", closest[i].word, closest[i].distance);
+    }
+    printf("\n");
+}
 
 int main(void) {
-    int word_count = 0;
-    char **words = process_input(&word_count);
+    int input_word_count = 0;
+    char **input_words = process_input(&input_word_count);
     const char *dictionary_file = "basic_english_2000.txt"; // File name
     char **dictionary_words = NULL; // Array of words in the file
     int dict_word_count = 0; // Number of words loaded
 
     // Call file_operations function
     file_operations(dictionary_file, &dictionary_words, &dict_word_count);
-    if (words != NULL) {
-        printf("Processed Words:\n");
-        for (int i = 0; i < word_count; i++) {
-            printf("%s\n", words[i]);
-            free(words[i]); // Free memory for each word
-        }
-        free(words); // Free the array of words
+    for (int i = 0; i < input_word_count; i++) {
+        printf("WORD %d: %s\n", i+1, input_words[i]);
+        find_closest_words(input_words[i], dictionary_words, dict_word_count);
+        printf("\n");
     }
+
     // Print loaded words for verification
     /*printf("Loaded %d words from \"%s\":\n", dict_word_count, dictionary_file);
     for (int i = 0; i < dict_word_count; i++) {
@@ -235,12 +270,5 @@ int main(void) {
         free(dictionary_words[i]);
     }
     free(dictionary_words);
-    const char *str1 = "simay";
-    const char *str2 = "simay";
-
-    size_t distance = levenshtein(str1, str2);
-
-    printf("Levenshtein distance between '%s' and '%s' is %zu\n", str1, str2, distance);
-
     return 0;
 }
