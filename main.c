@@ -230,20 +230,22 @@ typedef struct {
     int is_word_found;
     char *closest_word;
     int client_fd;
-    int word_position; // Add this field to store the word's position
-
+    int word_position;
 } ThreadData;
 
 void *thread_function(void *arg) {
     ThreadData *data = (ThreadData *)arg;
     pthread_mutex_lock(&telnet_mutex);
 
+    // Display the word and its position
     char response_message[1024];
-    snprintf(response_message, sizeof(response_message), "}\nWORD: %s\n", data->input_word);
+    snprintf(response_message, sizeof(response_message), "\nWORD %02d: %s\n", data->word_position, data->input_word);
     send(data->client_fd, response_message, strlen(response_message), 0);
 
+    // Find closest words
     find_closest_words(data->input_word, data->dictionary_words, data->dictionary_size, &data->closest_word, &data->is_word_found, data->client_fd);
 
+    // If word is not found, ask if the user wants to add it
     if (!data->is_word_found) {
         const char *not_found_message = "The word is not in the dictionary. Would you like to add it? (y/n): ";
         send(data->client_fd, not_found_message, strlen(not_found_message), 0);
@@ -258,6 +260,7 @@ void *thread_function(void *arg) {
                 strcpy(data->dictionary_words[data->dictionary_size], data->input_word);
                 data->dictionary_size++;
 
+                // Write to dictionary file
                 FILE *file = fopen("basic_english_2000.txt", "a");
                 if (file != NULL) {
                     fprintf(file, "%s\n", data->input_word);
@@ -277,6 +280,7 @@ void *thread_function(void *arg) {
     return NULL;
 }
 
+
 void process_and_send_words(int client_fd, const char *input, char **dictionary_words, int dict_word_count) {
     int input_word_count = 0;
     char **input_words = process_input(&input_word_count, input);
@@ -290,19 +294,20 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     pthread_t threads[input_word_count];
     ThreadData thread_data[input_word_count];
 
-    char corrected_sentence[1024] = "";
-    char original_sentence[1024] = "";
+    char corrected_sentence[1024] = ""; // Corrected sentence
+    char original_sentence[1024] = ""; // Original sentence
 
     for (int i = 0; i < input_word_count; i++) {
         strcat(original_sentence, input_words[i]);
-        strcat(original_sentence, " ");
+        strcat(original_sentence, " "); // Add space between words
 
         thread_data[i].input_word = input_words[i];
         thread_data[i].dictionary_words = dictionary_words;
         thread_data[i].dictionary_size = dict_word_count;
         thread_data[i].is_word_found = 0;
-        thread_data[i].closest_word = NULL;
+        thread_data[i].closest_word = NULL; // Initialize closest_word to NULL
         thread_data[i].client_fd = client_fd;
+        thread_data[i].word_position = i + 1; // Assign the word position
 
         if (pthread_create(&threads[i], NULL, thread_function, &thread_data[i]) != 0) {
             fprintf(stderr, "ERROR: Failed to create thread for word %d.\n", i + 1);
@@ -316,17 +321,20 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
 
     for (int i = 0; i < input_word_count; i++) {
         if (!thread_data[i].is_word_found && thread_data[i].closest_word != NULL) {
+            // Use the closest word if the word is not found and not added
             strcat(corrected_sentence, thread_data[i].closest_word);
         } else {
+            // Use the original word
             strcat(corrected_sentence, thread_data[i].input_word);
         }
         strcat(corrected_sentence, " ");
     }
 
+    // Send the original and corrected sentences to the client
     char response_message[1024];
-    snprintf(response_message, sizeof(response_message), "Original sentence: %s\n", original_sentence);
+    snprintf(response_message, sizeof(response_message), "\nINPUT: %s\n", original_sentence);
     send(client_fd, response_message, strlen(response_message), 0);
-    snprintf(response_message, sizeof(response_message), "Corrected sentence: %s\n", corrected_sentence);
+    snprintf(response_message, sizeof(response_message), "OUTPUT: %s\n", corrected_sentence);
     send(client_fd, response_message, strlen(response_message), 0);
 
     for (int i = 0; i < input_word_count; i++) {
@@ -334,6 +342,7 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     }
     free(input_words);
 }
+
 
 int main(void) {
     pthread_mutex_init(&telnet_mutex, NULL);
