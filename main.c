@@ -247,7 +247,10 @@ void *thread_function(void *arg) {
 
     // If word is not found, ask if the user wants to add it
     if (!data->is_word_found) {
-        const char *not_found_message = "The word is not in the dictionary. Would you like to add it? (y/n): ";
+        char not_found_message[1024];
+        snprintf(not_found_message, sizeof(not_found_message),
+                 "\nThe WORD %s is not present in dictionary. \nDo you want to add this word to dictionary? (y/N): ",
+                 data->input_word);
         send(data->client_fd, not_found_message, strlen(not_found_message), 0);
 
         char buffer[1024];
@@ -334,9 +337,14 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     char response_message[1024];
     snprintf(response_message, sizeof(response_message), "\nINPUT: %s\n", original_sentence);
     send(client_fd, response_message, strlen(response_message), 0);
-    snprintf(response_message, sizeof(response_message), "OUTPUT: %s\n", corrected_sentence);
+    snprintf(response_message, sizeof(response_message), "OUTPUT: %s\n\n", corrected_sentence);
     send(client_fd, response_message, strlen(response_message), 0);
 
+    // Send the farewell message
+    const char *farewell_message = "Thank you for using Text Analysis Server! Good Bye!\n";
+    send(client_fd, farewell_message, strlen(farewell_message), 0);
+
+    // Free allocated memory
     for (int i = 0; i < input_word_count; i++) {
         free(input_words[i]);
     }
@@ -354,7 +362,7 @@ int main(void) {
 void start_server(int port_number) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
-        perror("HATA: Soket oluşturulamadı");
+        perror("ERROR: Failed to create socket");
         exit(EXIT_FAILURE);
     }
 
@@ -364,34 +372,35 @@ void start_server(int port_number) {
     server_addr.sin_port = htons(port_number);
 
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("HATA: Soket bağlanamadı");
+        perror("ERROR: Failed to bind socket");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 5) == -1) {
-        perror("HATA: Soket dinlenemedi");
+        perror("ERROR: Failed to listen on socket");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
-    printf("Sunucu %d portunda çalışıyor\n", port_number);
+    printf("Server running on port %d\n", port_number);
 
     while (1) {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd == -1) {
-            perror("HATA: Bağlantı kabul edilemedi");
+            perror("ERROR: Failed to accept connection");
             continue;
         }
 
         handle_client(client_fd);
     }
 
-    close(server_fd);
+    close(server_fd); // Close the server socket
 }
 
+
 void handle_client(int client_fd) {
-    const char *welcome_message = "Merhaba! Sunucuya bağlandınız. 'exit' yazarak bağlantıyı kesebilirsiniz. 'shutdown' yazarak sunucuyu durdurabilirsiniz.\n";
+    const char *welcome_message = "\nType 'exit' to disconnect. Type 'shutdown' to stop the server.\n\nHello, this is Text Analysis Server! \n\nPlease enter your input string:\n";
     send(client_fd, welcome_message, strlen(welcome_message), 0);
 
     char buffer[1024];
@@ -399,22 +408,22 @@ void handle_client(int client_fd) {
     while (1) {
         int bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
         if (bytes_received <= 0) {
-            printf("İstemci bağlantısı kesildi.\n");
+            printf("Client disconnected.\n");
             break;
         }
 
         buffer[bytes_received] = '\0';
-        printf("İstemci diyor ki: %s", buffer);
+        printf("Client says: %s", buffer);
 
         if (strncmp(buffer, "shutdown", 8) == 0) {
-            const char *shutdown_message = "Sunucu kapatılıyor...\n";
+            const char *shutdown_message = "Shutting down the server...\n";
             send(client_fd, shutdown_message, strlen(shutdown_message), 0);
             close(client_fd);
-            exit(0);
+            exit(0); // Exit the server
         }
 
         if (strncmp(buffer, "exit", 4) == 0) {
-            const char *goodbye_message = "Güle güle!\n";
+            const char *goodbye_message = "Goodbye!\n";
             send(client_fd, goodbye_message, strlen(goodbye_message), 0);
             break;
         }
@@ -422,9 +431,10 @@ void handle_client(int client_fd) {
         buffer[strcspn(buffer, "\r\n")] = '\0';
         process_and_send_words(client_fd, buffer, NULL, 0);
 
-        const char *response = "Mesaj alındı!\n";
-        send(client_fd, response, strlen(response), 0);
+        close(client_fd); // Close connection after processing the sentence
+        return; // End communication
     }
 
     close(client_fd);
 }
+
