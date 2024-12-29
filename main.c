@@ -18,7 +18,6 @@ int LEVENSHTEIN_LIST_LIMIT = 5;
 pthread_mutex_t telnet_mutex; // Mutex for synchronized Telnet communication
 
 void file_operations(const char *dictionary_file, char ***words, int *word_count);
-// Function prototype
 char **process_input(int *word_count, const char *input);
 void start_server(int port_number);
 void handle_client(int client_fd);
@@ -29,14 +28,6 @@ typedef struct {
     size_t distance;
 } WordDistance;
 
-// `levenshtein.c` - levenshtein
-// MIT licensed.
-// Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-
-#include <string.h>
-#include <stdlib.h>
-// Returns a size_t, depicting the difference between `a` and `b`.
-// See <https://en.wikipedia.org/wiki/Levenshtein_distance> for more information.
 size_t
 levenshtein_n(const char *a, const size_t length, const char *b, const size_t bLength) {
     // Shortcut optimizations / degenerate cases.
@@ -91,6 +82,7 @@ levenshtein_n(const char *a, const size_t length, const char *b, const size_t bL
     return result;
 }
 
+
 size_t
 levenshtein(const char *a, const char *b) {
     const size_t length = strlen(a);
@@ -98,20 +90,17 @@ levenshtein(const char *a, const char *b) {
 
     return levenshtein_n(a, length, b, bLength);
 }
-// Function to handle file operations
+
 void file_operations(const char *dictionary_file, char ***words, int *word_count) {
     FILE *file;
     char buffer[WORD_LENGTH];
-    int capacity = 10; // Initial capacity for word list
-
-    // Allocate memory for the initial capacity
+    int capacity = 10;
     *words = (char **)malloc(capacity * sizeof(char *));
     if (*words == NULL) {
         fprintf(stderr, "ERROR: Memory allocation failed.\n");
         exit(EXIT_FAILURE);
     }
 
-    // Open the dictionary file
     file = fopen(dictionary_file, "r");
     if (file == NULL) {
         fprintf(stderr, "ERROR: Dictionary file \"%s\" not found!\n", dictionary_file);
@@ -119,12 +108,10 @@ void file_operations(const char *dictionary_file, char ***words, int *word_count
         exit(EXIT_FAILURE);
     }
 
-    // Read words from the file
     *word_count = 0;
     while (fscanf(file, "%49s", buffer) != EOF) {
-        // Check if the current capacity is exceeded
         if (*word_count >= capacity) {
-            capacity *= 2; // Double the capacity
+            capacity *= 2;
             *words = (char **)realloc(*words, capacity * sizeof(char *));
             if (*words == NULL) {
                 fprintf(stderr, "ERROR: Memory reallocation failed.\n");
@@ -133,7 +120,6 @@ void file_operations(const char *dictionary_file, char ***words, int *word_count
             }
         }
 
-        // Allocate memory for each word and copy it
         (*words)[*word_count] = (char *)malloc((strlen(buffer) + 1) * sizeof(char));
         if ((*words)[*word_count] == NULL) {
             fprintf(stderr, "ERROR: Memory allocation failed for word.\n");
@@ -144,35 +130,28 @@ void file_operations(const char *dictionary_file, char ***words, int *word_count
         (*word_count)++;
     }
 
-    // Close the file
     fclose(file);
 }
 
-// Function to process user input and return an array of words
 char **process_input(int *word_count, const char *input) {
     char *processed_input;
     char **words = NULL;
     int i, j = 0;
-
-    // Allocate memory for the processed string
     processed_input = (char *)malloc((strlen(input) + 1) * sizeof(char));
     if (processed_input == NULL) {
         fprintf(stderr, "ERROR: Memory allocation failed.\n");
         return NULL;
     }
 
-    // Remove punctuation and convert to lowercase
     for (i = 0; input[i] != '\0'; i++) {
         if (isalpha(input[i]) || isspace(input[i])) {
             processed_input[j++] = tolower(input[i]);
         }
     }
-    processed_input[j] = '\0'; // Null-terminate the processed string
+    processed_input[j] = '\0';
 
-    // Tokenize the processed string into words
     char *token = strtok(processed_input, " ");
     while (token != NULL) {
-        // Reallocate memory to store the new word
         words = (char **)realloc(words, (*word_count + 1) * sizeof(char *));
         if (words == NULL) {
             fprintf(stderr, "ERROR: Memory reallocation failed.\n");
@@ -180,7 +159,6 @@ char **process_input(int *word_count, const char *input) {
             return NULL;
         }
 
-        // Allocate memory for the word and copy it
         words[*word_count] = (char *)malloc((strlen(token) + 1) * sizeof(char));
         if (words[*word_count] == NULL) {
             fprintf(stderr, "ERROR: Memory allocation failed for word.\n");
@@ -196,20 +174,11 @@ char **process_input(int *word_count, const char *input) {
         token = strtok(NULL, " ");
     }
 
-    // Free the processed input string as it's no longer needed
     free(processed_input);
-
-    // Print the words for debugging
-    printf("Processed words:\n");
-    for (int k = 0; k < *word_count; k++) {
-        printf("Word %d: %s\n", k + 1, words[k]);
-    }
-
     return words;
 }
 
-// Function to find the top LEVENSHTEIN_LIST_LIMIT closest words and their distances
-void find_closest_words(const char *input_word, char **dictionary_words, int dictionary_size, int *is_word_found, int client_fd) {
+void find_closest_words(const char *input_word, char **dictionary_words, int dictionary_size, char **closest_word, int *is_word_found, int client_fd) {
     typedef struct {
         char *word;
         size_t distance;
@@ -221,18 +190,14 @@ void find_closest_words(const char *input_word, char **dictionary_words, int dic
         closest[i].distance = SIZE_MAX;
     }
 
-    // Calculate Levenshtein distances and update the closest words list.
     for (int i = 0; i < dictionary_size; i++) {
         size_t distance = levenshtein(input_word, dictionary_words[i]);
-
         if (distance == 0) {
             *is_word_found = 1;
         }
 
-        // Check if this word is closer than the farthest word in the list
         for (int j = 0; j < LEVENSHTEIN_LIST_LIMIT; j++) {
             if (distance < closest[j].distance) {
-                // Shift remaining entries to make room for the new word
                 for (int k = LEVENSHTEIN_LIST_LIMIT - 1; k > j; k--) {
                     closest[k] = closest[k - 1];
                 }
@@ -243,7 +208,10 @@ void find_closest_words(const char *input_word, char **dictionary_words, int dic
         }
     }
 
-    // Send the closest matches to the client
+    if (closest[0].word != NULL) {
+        *closest_word = closest[0].word;
+    }
+
     char message[1024];
     snprintf(message, sizeof(message), "MATCHES: ");
     send(client_fd, message, strlen(message), 0);
@@ -260,20 +228,21 @@ typedef struct {
     char **dictionary_words;
     int dictionary_size;
     int is_word_found;
+    char *closest_word;
     int client_fd;
+    int word_position; // Add this field to store the word's position
+
 } ThreadData;
 
 void *thread_function(void *arg) {
     ThreadData *data = (ThreadData *)arg;
-
-    // Lock Telnet communication to ensure sequential output
     pthread_mutex_lock(&telnet_mutex);
 
     char response_message[1024];
-    snprintf(response_message, sizeof(response_message), "WORD: %s\n", data->input_word);
+    snprintf(response_message, sizeof(response_message), "}\nWORD: %s\n", data->input_word);
     send(data->client_fd, response_message, strlen(response_message), 0);
 
-    find_closest_words(data->input_word, data->dictionary_words, data->dictionary_size, &data->is_word_found, data->client_fd);
+    find_closest_words(data->input_word, data->dictionary_words, data->dictionary_size, &data->closest_word, &data->is_word_found, data->client_fd);
 
     if (!data->is_word_found) {
         const char *not_found_message = "The word is not in the dictionary. Would you like to add it? (y/n): ";
@@ -284,7 +253,17 @@ void *thread_function(void *arg) {
         if (response_received > 0) {
             buffer[response_received] = '\0';
             if (buffer[0] == 'y' || buffer[0] == 'Y') {
-                // Add the word to the dictionary (placeholder, as dynamic dictionary update is not implemented)
+                data->dictionary_words = (char **)realloc(data->dictionary_words, (data->dictionary_size + 1) * sizeof(char *));
+                data->dictionary_words[data->dictionary_size] = (char *)malloc((strlen(data->input_word) + 1) * sizeof(char));
+                strcpy(data->dictionary_words[data->dictionary_size], data->input_word);
+                data->dictionary_size++;
+
+                FILE *file = fopen("basic_english_2000.txt", "a");
+                if (file != NULL) {
+                    fprintf(file, "%s\n", data->input_word);
+                    fclose(file);
+                }
+
                 const char *added_message = "The word has been added to the dictionary.\n";
                 send(data->client_fd, added_message, strlen(added_message), 0);
             } else {
@@ -302,7 +281,7 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     int input_word_count = 0;
     char **input_words = process_input(&input_word_count, input);
     if (input_words == NULL) {
-        return; // Exit on error
+        return;
     }
     const char *dictionary_file = "basic_english_2000.txt";
 
@@ -311,11 +290,18 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     pthread_t threads[input_word_count];
     ThreadData thread_data[input_word_count];
 
+    char corrected_sentence[1024] = "";
+    char original_sentence[1024] = "";
+
     for (int i = 0; i < input_word_count; i++) {
+        strcat(original_sentence, input_words[i]);
+        strcat(original_sentence, " ");
+
         thread_data[i].input_word = input_words[i];
         thread_data[i].dictionary_words = dictionary_words;
         thread_data[i].dictionary_size = dict_word_count;
         thread_data[i].is_word_found = 0;
+        thread_data[i].closest_word = NULL;
         thread_data[i].client_fd = client_fd;
 
         if (pthread_create(&threads[i], NULL, thread_function, &thread_data[i]) != 0) {
@@ -329,16 +315,31 @@ void process_and_send_words(int client_fd, const char *input, char **dictionary_
     }
 
     for (int i = 0; i < input_word_count; i++) {
+        if (!thread_data[i].is_word_found && thread_data[i].closest_word != NULL) {
+            strcat(corrected_sentence, thread_data[i].closest_word);
+        } else {
+            strcat(corrected_sentence, thread_data[i].input_word);
+        }
+        strcat(corrected_sentence, " ");
+    }
+
+    char response_message[1024];
+    snprintf(response_message, sizeof(response_message), "Original sentence: %s\n", original_sentence);
+    send(client_fd, response_message, strlen(response_message), 0);
+    snprintf(response_message, sizeof(response_message), "Corrected sentence: %s\n", corrected_sentence);
+    send(client_fd, response_message, strlen(response_message), 0);
+
+    for (int i = 0; i < input_word_count; i++) {
         free(input_words[i]);
     }
     free(input_words);
 }
 
 int main(void) {
-    pthread_mutex_init(&telnet_mutex, NULL); // Initialize the mutex
+    pthread_mutex_init(&telnet_mutex, NULL);
     printf("Sunucu %d portunda başlatılıyor...\n", PORT_NUMBER);
     start_server(PORT_NUMBER);
-    pthread_mutex_destroy(&telnet_mutex); // Destroy the mutex
+    pthread_mutex_destroy(&telnet_mutex);
 }
 
 void start_server(int port_number) {
