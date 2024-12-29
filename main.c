@@ -366,6 +366,14 @@ void start_server(int port_number) {
         exit(EXIT_FAILURE);
     }
 
+    // Set SO_REUSEADDR to allow reuse of the port
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("ERROR: Failed to set socket options");
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -373,13 +381,13 @@ void start_server(int port_number) {
 
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         perror("ERROR: Failed to bind socket");
-        close(server_fd);
+        close(server_fd); // Close the socket to release the port
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 5) == -1) {
         perror("ERROR: Failed to listen on socket");
-        close(server_fd);
+        close(server_fd); // Close the socket to release the port
         exit(EXIT_FAILURE);
     }
 
@@ -395,8 +403,9 @@ void start_server(int port_number) {
         handle_client(client_fd);
     }
 
-    close(server_fd); // Close the server socket
+    close(server_fd); // Close the server socket when done
 }
+
 
 
 void handle_client(int client_fd) {
@@ -415,6 +424,7 @@ void handle_client(int client_fd) {
         buffer[bytes_received] = '\0';
         printf("Client says: %s", buffer);
 
+        // Shutdown command handling
         if (strncmp(buffer, "shutdown", 8) == 0) {
             const char *shutdown_message = "Shutting down the server...\n";
             send(client_fd, shutdown_message, strlen(shutdown_message), 0);
@@ -422,13 +432,36 @@ void handle_client(int client_fd) {
             exit(0); // Exit the server
         }
 
+        // Exit command handling
         if (strncmp(buffer, "exit", 4) == 0) {
             const char *goodbye_message = "Goodbye!\n";
             send(client_fd, goodbye_message, strlen(goodbye_message), 0);
             break;
         }
 
+        // Remove trailing newline or carriage return
         buffer[strcspn(buffer, "\r\n")] = '\0';
+
+        // Check for input length violation
+        if (strlen(buffer) > INPUT_CHARACTER_LIMIT) {
+            char error_message[1024];
+            snprintf(error_message, sizeof(error_message), "ERROR: Input string is longer than %d characters (INPUT_CHARACTER_LIMIT)!\n", INPUT_CHARACTER_LIMIT);
+            send(client_fd, error_message, strlen(error_message), 0);
+            close(client_fd); // Close connection
+            exit(EXIT_FAILURE); // Shut down the server
+        }
+
+        // Check for unsupported characters
+        for (int i = 0; buffer[i] != '\0'; i++) {
+            if (!isalpha(buffer[i]) && !isspace(buffer[i])) {
+                const char *error_message = "ERROR: Input string contains unsupported characters!\n";
+                send(client_fd, error_message, strlen(error_message), 0);
+                close(client_fd); // Close connection
+                exit(EXIT_FAILURE); // Shut down the server
+            }
+        }
+
+        // Process and send words
         process_and_send_words(client_fd, buffer, NULL, 0);
 
         close(client_fd); // Close connection after processing the sentence
@@ -437,4 +470,5 @@ void handle_client(int client_fd) {
 
     close(client_fd);
 }
+
 
