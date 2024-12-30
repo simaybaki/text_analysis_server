@@ -3,9 +3,10 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdint.h>
-#include <pthread.h> // Include pthread library
+#include <pthread.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <stdbool.h> // For boolean operations
 
 int INPUT_CHARACTER_LIMIT = 100;
 int OUTPUT_CHARACTER_LIMIT = 200;
@@ -233,123 +234,6 @@ typedef struct {
     int word_position;
 } ThreadData;
 
-void *thread_function(void *arg) {
-    ThreadData *data = (ThreadData *)arg;
-    pthread_mutex_lock(&telnet_mutex);
-
-    // Display the word and its position
-    char response_message[1024];
-    snprintf(response_message, sizeof(response_message), "\nWORD %02d: %s\n", data->word_position, data->input_word);
-    send(data->client_fd, response_message, strlen(response_message), 0);
-
-    // Find closest words
-    find_closest_words(data->input_word, data->dictionary_words, data->dictionary_size, &data->closest_word, &data->is_word_found, data->client_fd);
-
-    // If word is not found, ask if the user wants to add it
-    if (!data->is_word_found) {
-        char not_found_message[1024];
-        snprintf(not_found_message, sizeof(not_found_message),
-                 "\nThe WORD %s is not present in dictionary. \nDo you want to add this word to dictionary? (y/N): ",
-                 data->input_word);
-        send(data->client_fd, not_found_message, strlen(not_found_message), 0);
-
-        char buffer[1024];
-        int response_received = recv(data->client_fd, buffer, sizeof(buffer) - 1, 0);
-        if (response_received > 0) {
-            buffer[response_received] = '\0';
-            if (buffer[0] == 'y' || buffer[0] == 'Y') {
-                data->dictionary_words = (char **)realloc(data->dictionary_words, (data->dictionary_size + 1) * sizeof(char *));
-                data->dictionary_words[data->dictionary_size] = (char *)malloc((strlen(data->input_word) + 1) * sizeof(char));
-                strcpy(data->dictionary_words[data->dictionary_size], data->input_word);
-                data->dictionary_size++;
-
-                // Write to dictionary file
-                FILE *file = fopen("basic_english_2000.txt", "a");
-                if (file != NULL) {
-                    fprintf(file, "%s\n", data->input_word);
-                    fclose(file);
-                }
-
-                const char *added_message = "The word has been added to the dictionary.\n";
-                send(data->client_fd, added_message, strlen(added_message), 0);
-            } else {
-                const char *skipped_message = "The word has been skipped.\n";
-                send(data->client_fd, skipped_message, strlen(skipped_message), 0);
-            }
-        }
-    }
-
-    pthread_mutex_unlock(&telnet_mutex);
-    return NULL;
-}
-
-
-void process_and_send_words(int client_fd, const char *input, char **dictionary_words, int dict_word_count) {
-    int input_word_count = 0;
-    char **input_words = process_input(&input_word_count, input);
-    if (input_words == NULL) {
-        return;
-    }
-    const char *dictionary_file = "basic_english_2000.txt";
-
-    file_operations(dictionary_file, &dictionary_words, &dict_word_count);
-
-    pthread_t threads[input_word_count];
-    ThreadData thread_data[input_word_count];
-
-    char corrected_sentence[1024] = ""; // Corrected sentence
-    char original_sentence[1024] = ""; // Original sentence
-
-    for (int i = 0; i < input_word_count; i++) {
-        strcat(original_sentence, input_words[i]);
-        strcat(original_sentence, " "); // Add space between words
-
-        thread_data[i].input_word = input_words[i];
-        thread_data[i].dictionary_words = dictionary_words;
-        thread_data[i].dictionary_size = dict_word_count;
-        thread_data[i].is_word_found = 0;
-        thread_data[i].closest_word = NULL; // Initialize closest_word to NULL
-        thread_data[i].client_fd = client_fd;
-        thread_data[i].word_position = i + 1; // Assign the word position
-
-        if (pthread_create(&threads[i], NULL, thread_function, &thread_data[i]) != 0) {
-            fprintf(stderr, "ERROR: Failed to create thread for word %d.\n", i + 1);
-            return;
-        }
-    }
-
-    for (int i = 0; i < input_word_count; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    for (int i = 0; i < input_word_count; i++) {
-        if (!thread_data[i].is_word_found && thread_data[i].closest_word != NULL) {
-            // Use the closest word if the word is not found and not added
-            strcat(corrected_sentence, thread_data[i].closest_word);
-        } else {
-            // Use the original word
-            strcat(corrected_sentence, thread_data[i].input_word);
-        }
-        strcat(corrected_sentence, " ");
-    }
-
-    // Send the original and corrected sentences to the client
-    char response_message[1024];
-    snprintf(response_message, sizeof(response_message), "\nINPUT: %s\n", original_sentence);
-    send(client_fd, response_message, strlen(response_message), 0);
-    snprintf(response_message, sizeof(response_message), "OUTPUT: %s\n\n", corrected_sentence);
-    send(client_fd, response_message, strlen(response_message), 0);
-
-    // Send the farewell message
-    const char *farewell_message = "Thank you for using Text Analysis Server! Good Bye!\n";
-    send(client_fd, farewell_message, strlen(farewell_message), 0);
-
-    // Free allocated memory
-    for (int i = 0; i < input_word_count; i++) {
-        free(input_words[i]);
-    }
-    free(input_words);
-}
 
 
 int main(void) {
@@ -406,6 +290,130 @@ void start_server(int port_number) {
     close(server_fd); // Close the server socket when done
 }
 
+void *thread_function(void *arg) {
+    ThreadData *data = (ThreadData *)arg;
+    pthread_mutex_lock(&telnet_mutex);
+
+    // Display the word and its position
+    char response_message[1024];
+    snprintf(response_message, sizeof(response_message), "\nWORD %02d: %s\n", data->word_position, data->input_word);
+    send(data->client_fd, response_message, strlen(response_message), 0);
+
+    // Find closest words
+    find_closest_words(data->input_word, data->dictionary_words, data->dictionary_size, &data->closest_word, &data->is_word_found, data->client_fd);
+
+    // If word is not found, ask if the user wants to add it
+    if (!data->is_word_found) {
+        char not_found_message[1024];
+        snprintf(not_found_message, sizeof(not_found_message),
+                 "\nThe WORD %s is not present in dictionary. \nDo you want to add this word to dictionary? (y/N): ",
+                 data->input_word);
+        send(data->client_fd, not_found_message, strlen(not_found_message), 0);
+
+        char buffer[1024];
+        int response_received = recv(data->client_fd, buffer, sizeof(buffer) - 1, 0);
+        if (response_received > 0) {
+            buffer[response_received] = '\0';
+            if (buffer[0] == 'y' || buffer[0] == 'Y') {
+
+                data->is_word_found = 1;
+                // Update in-memory dictionary
+                data->dictionary_words = (char **)realloc(data->dictionary_words, (data->dictionary_size + 1) * sizeof(char *));
+                if (data->dictionary_words != NULL) {
+                    data->dictionary_words[data->dictionary_size] = (char *)malloc((strlen(data->input_word) + 1) * sizeof(char));
+                    if (data->dictionary_words[data->dictionary_size] != NULL) {
+                        strcpy(data->dictionary_words[data->dictionary_size], data->input_word);
+                        data->dictionary_size++;
+
+                        // Write to dictionary file
+                        FILE *file = fopen("basic_english_2000.txt", "a");
+                        if (file != NULL) {
+                            fprintf(file, "%s\n", data->input_word);
+                            fclose(file);
+                        }
+                        const char *added_message = "The word has been added to the dictionary.\n";
+                        send(data->client_fd, added_message, strlen(added_message), 0);
+                    }
+                }
+            } else if (buffer[0] == 'n' || buffer[0] == 'N'){
+                const char *skipped_message = "The word has been skipped.\n";
+                send(data->client_fd, skipped_message, strlen(skipped_message), 0);
+            }else {
+                const char *error_message = "ERROR: Invalid input, closing connection...\n";
+                send(data->client_fd, error_message, strlen(error_message), 0);
+                close(data->client_fd); // Close the client connection
+                exit(EXIT_FAILURE); // Shut down the server
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&telnet_mutex);
+    return NULL;
+}
+
+void process_and_send_words(int client_fd, const char *input, char **dictionary_words, int dict_word_count) {
+    int input_word_count = 0;
+    char **input_words = process_input(&input_word_count, input);
+    if (input_words == NULL) {
+        return;
+    }
+    const char *dictionary_file = "basic_english_2000.txt";
+
+    file_operations(dictionary_file, &dictionary_words, &dict_word_count);
+
+    pthread_t threads[input_word_count];
+    ThreadData thread_data[input_word_count];
+
+    char corrected_sentence[1024] = ""; // Corrected sentence
+    char original_sentence[1024] = ""; // Original sentence
+
+    for (int i = 0; i < input_word_count; i++) {
+        strcat(original_sentence, input_words[i]);
+        strcat(original_sentence, " "); // Add space between words
+
+        thread_data[i].input_word = input_words[i];
+        thread_data[i].dictionary_words = dictionary_words;
+        thread_data[i].dictionary_size = dict_word_count;
+        thread_data[i].is_word_found = 0;
+        thread_data[i].closest_word = NULL; // Initialize closest_word to NULL
+        thread_data[i].client_fd = client_fd;
+        thread_data[i].word_position = i + 1; // Assign the word position
+
+        if (pthread_create(&threads[i], NULL, thread_function, &thread_data[i]) != 0) {
+            fprintf(stderr, "ERROR: Failed to create thread for word %d.\n", i + 1);
+            return;
+        }
+    }
+
+    // Wait for all threads and construct the corrected sentence
+    for (int i = 0; i < input_word_count; i++) {
+        pthread_join(threads[i], NULL);
+        if (!thread_data[i].is_word_found && thread_data[i].closest_word != NULL) {
+            strcat(corrected_sentence, thread_data[i].closest_word);
+        } else {
+            strcat(corrected_sentence, thread_data[i].input_word);
+        }
+        strcat(corrected_sentence, " ");
+    }
+
+    // Send the original and corrected sentences to the client
+    char response_message[1024];
+    snprintf(response_message, sizeof(response_message), "\nINPUT: %s\n", original_sentence);
+    send(client_fd, response_message, strlen(response_message), 0);
+    snprintf(response_message, sizeof(response_message), "OUTPUT: %s\n\n", corrected_sentence);
+    send(client_fd, response_message, strlen(response_message), 0);
+
+    // Send the farewell message
+    const char *farewell_message = "Thank you for using Text Analysis Server! Good Bye!\n";
+    send(client_fd, farewell_message, strlen(farewell_message), 0);
+
+    // Free allocated memory
+    for (int i = 0; i < input_word_count; i++) {
+        free(input_words[i]);
+    }
+    free(input_words);
+    exit(1);
+}
 
 
 void handle_client(int client_fd) {
@@ -449,6 +457,7 @@ void handle_client(int client_fd) {
             send(client_fd, error_message, strlen(error_message), 0);
             close(client_fd); // Close connection
             exit(EXIT_FAILURE); // Shut down the server
+
         }
 
         // Check for unsupported characters
